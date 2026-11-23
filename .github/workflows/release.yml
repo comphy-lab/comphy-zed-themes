@@ -1,35 +1,64 @@
 name: Release Zed Extension
 
 on:
-  push:
-    tags:
-      - 'v*'
-  # Lets a failed or superseded release be retried against an explicit tag,
-  # without deleting and re-pushing the tag to re-fire the push trigger.
   workflow_dispatch:
     inputs:
       tag:
-        description: 'Tag to publish (defaults to the pushed tag)'
-        required: false
+        description: 'Release tag at the selected master commit (vMAJOR.MINOR.PATCH)'
+        required: true
         type: string
 
+permissions:
+  contents: read
+
+concurrency:
+  group: zed-registry-release
+  cancel-in-progress: false
+
 jobs:
-  release:
-    name: Release Zed Extension
+  verify:
+    if: github.ref == 'refs/heads/master'
     runs-on: ubuntu-latest
     steps:
-      - uses: huacnlee/zed-extension-action@v1.0.0
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          ref: ${{ github.sha }}
+          fetch-depth: 0
+          persist-credentials: false
+      - name: Verify tagged release
+        shell: bash
+        env:
+          RELEASE_TAG: ${{ inputs.tag }}
+          RELEASE_SHA: ${{ github.sha }}
+        run: |
+          set -euo pipefail
+          if [[ ! "$RELEASE_TAG" =~ ^v[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
+            echo "::error::Use an exact vMAJOR.MINOR.PATCH tag."
+            exit 1
+          fi
+          tagged_sha=$(git rev-parse --verify "refs/tags/${RELEASE_TAG}^{commit}")
+          if [[ "$tagged_sha" != "$RELEASE_SHA" || "$(git rev-parse HEAD)" != "$RELEASE_SHA" ]]; then
+            echo "::error::The tag must point to the exact default-branch commit selected for this run."
+            exit 1
+          fi
+          version=$(python3 -c 'import tomllib; print(tomllib.load(open("extension.toml", "rb"))["version"])')
+          if [[ "$RELEASE_TAG" != "v$version" ]]; then
+            echo "::error::The release tag must match the version in extension.toml."
+            exit 1
+          fi
+
+  release:
+    name: Release Zed Extension
+    if: github.ref == 'refs/heads/master'
+    needs: verify
+    runs-on: ubuntu-latest
+    environment: zed-registry-production
+    steps:
+      - uses: huacnlee/zed-extension-action@6a168731f1d994905eeb552b3b42b0cb6c4d12e6 # v1.0.0
         with:
           extension-name: comphy-crisp-themes
-          # comphy-lab/extensions is a real fork of zed-industries/extensions.
-          # The previous target, VatsalSy/extensions, is a standalone repository
-          # outside the upstream fork network (network_count 0), so no
-          # cross-repository pull request could be opened from it.
           push-to: comphy-lab/extensions
           tag-name: ${{ inputs.tag }}
-          # The action's default template starts "{{extensionName}} {{version}}",
-          # which upstream's danger check flags as not sentence case. Match the
-          # convention the registry actually uses: "Update <name> to v<version>".
           commit-message: |
             Update {{extensionName}} to v{{version}}
 
@@ -39,6 +68,4 @@ jobs:
 
             > Created by [zed-extension-action](https://github.com/huacnlee/zed-extension-action).
         env:
-          # Classic PAT with repo + workflow scopes. The previous one expired
-          # around 2026-02-15 and failed two releases with a bare 401.
-          COMMITTER_TOKEN: ${{ secrets.COMMITTER_TOKEN }}
+          COMMITTER_TOKEN: ${{ secrets.ZED_REGISTRY_RELEASE_TOKEN }}
