@@ -28,7 +28,8 @@ Use this skill for release operations in `comphy-zed-themes` after the clean-bre
 5. Publish release via `$release-notes-writer`.
    - Run `create_release.sh <tag> <notes-file>`
    - This creates tag, pushes tag, and publishes GitHub release.
-6. Verify automation outcomes.
+6. In update mode, dispatch **Release Zed Extension** from `master` with the explicit tag (see [release security](../../../docs/release-security.md)). A tag push does not run the workflow. Obtain the production environment approval separately.
+7. Verify automation outcomes.
    - Confirm GitHub release exists: `gh release view <tag>`
    - Confirm workflow run: `gh run list --workflow release.yml --limit 5`
    - Confirm Zed PR status:
